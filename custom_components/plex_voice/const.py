@@ -17,6 +17,7 @@ DATA_COORDINATOR = "coordinator"
 INTENT_PLAY_MEDIA = "PlexPlayMedia"
 INTENT_CLARIFY_TYPE = "PlexClarifyType"
 INTENT_CLARIFY_TITLE = "PlexClarifyTitle"
+INTENT_CLARIFY_DEVICE = "PlexClarifyDevice"
 
 # Plex media types
 PLEX_TYPE_MOVIE = "movie"

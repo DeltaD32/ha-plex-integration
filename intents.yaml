@@ -43,3 +43,10 @@ intents:
         - "the [one called] {title}"
         - "i want {title}"
         - "play {title}"
+
+  PlexClarifyDevice:
+    - sentences:
+        - "[use] [the] {device}"
+        - "on [the] {device}"
+        - "play [it] on [the] {device}"
+        - "[use] [the] {device} [please]"
