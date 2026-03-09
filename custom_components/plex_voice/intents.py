@@ -69,9 +69,16 @@ def _clear_session(hass: HomeAssistant, key: str) -> None:
 
 
 def _find_player_entity(hass: HomeAssistant, location_hint: str) -> str | None:
-    """Match a spoken location to a media_player entity by friendly name or entity_id."""
+    """Match a spoken location to a Plex media_player entity by friendly name or entity_id.
+
+    Only considers entities registered by this integration (prefixed 'media_player.plex_')
+    so we never accidentally target a non-Plex player (e.g. a TV or Chromecast) that
+    can't handle Plex rating keys.
+    """
     hint = location_hint.lower().strip()
     for entity_id in hass.states.async_entity_ids("media_player"):
+        if not entity_id.startswith("media_player.plex_"):
+            continue
         state = hass.states.get(entity_id)
         if not state:
             continue

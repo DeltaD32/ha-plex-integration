@@ -260,17 +260,17 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
     # Playback control helpers
     # ------------------------------------------------------------------
 
+    def _client_headers(self, machine_id: str) -> dict:
+        """Return headers required to proxy a command to a specific Plex client."""
+        return {**PLEX_HEADERS, "X-Plex-Target-Client-Identifier": machine_id}
+
     async def play_on_client(self, machine_id: str, media_key: str, media_type: str) -> bool:
         """Tell a Plex client to play a specific item."""
-        url = self._url(
-            "/player/playback/playMedia",
-            machineIdentifier=machine_id,
-            key=media_key,
-            type=media_type,
-            **{"X-Plex-Target-Client-Identifier": machine_id},
-        )
+        # Plex expects a full key path, not just the rating key integer.
+        key = media_key if media_key.startswith("/") else f"/library/metadata/{media_key}"
+        url = self._url("/player/playback/playMedia", key=key, type=media_type, offset=0)
         try:
-            async with self._session.get(url, headers=PLEX_HEADERS) as resp:
+            async with self._session.get(url, headers=self._client_headers(machine_id)) as resp:
                 return resp.status in (200, 204)
         except Exception as err:
             _LOGGER.error("Failed to send play command: %s", err)
@@ -278,12 +278,9 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
 
     async def playback_command(self, machine_id: str, command: str) -> bool:
         """Send a simple playback command (pause, play, stop, skipNext, skipPrevious)."""
-        url = self._url(
-            f"/player/playback/{command}",
-            **{"X-Plex-Target-Client-Identifier": machine_id},
-        )
+        url = self._url(f"/player/playback/{command}")
         try:
-            async with self._session.get(url, headers=PLEX_HEADERS) as resp:
+            async with self._session.get(url, headers=self._client_headers(machine_id)) as resp:
                 return resp.status in (200, 204)
         except Exception as err:
             _LOGGER.error("Playback command '%s' failed: %s", command, err)
@@ -291,13 +288,9 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
 
     async def playback_seek(self, machine_id: str, offset_ms: int) -> bool:
         """Seek to position (offset in milliseconds)."""
-        url = self._url(
-            "/player/playback/seekTo",
-            offset=offset_ms,
-            **{"X-Plex-Target-Client-Identifier": machine_id},
-        )
+        url = self._url("/player/playback/seekTo", offset=offset_ms)
         try:
-            async with self._session.get(url, headers=PLEX_HEADERS) as resp:
+            async with self._session.get(url, headers=self._client_headers(machine_id)) as resp:
                 return resp.status in (200, 204)
         except Exception as err:
             _LOGGER.error("Seek failed: %s", err)
@@ -305,13 +298,9 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
 
     async def playback_set_volume(self, machine_id: str, volume_pct: int) -> bool:
         """Set volume (0-100)."""
-        url = self._url(
-            "/player/playback/setParameters",
-            volume=volume_pct,
-            **{"X-Plex-Target-Client-Identifier": machine_id},
-        )
+        url = self._url("/player/playback/setParameters", volume=volume_pct)
         try:
-            async with self._session.get(url, headers=PLEX_HEADERS) as resp:
+            async with self._session.get(url, headers=self._client_headers(machine_id)) as resp:
                 return resp.status in (200, 204)
         except Exception as err:
             _LOGGER.error("Volume set failed: %s", err)
