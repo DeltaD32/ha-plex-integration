@@ -18,7 +18,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import intent
+from homeassistant.helpers import intent, entity_registry as er, device_registry as dr, area_registry as ar
 
 from .const import (
     DOMAIN,
@@ -69,15 +69,45 @@ def _clear_session(hass: HomeAssistant, key: str) -> None:
 
 
 def _find_player_entity(hass: HomeAssistant, location_hint: str) -> str | None:
-    """Match a spoken location to a media_player entity by friendly name or entity_id."""
+    """Match a spoken location hint to a Plex media_player entity.
+
+    Checks (in order) against: entity friendly name, HA device name,
+    HA area name, and entity_id. This allows "living room" to match a
+    Plex player whose device is assigned to the Living Room area in HA.
+    """
     hint = location_hint.lower().strip()
+
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    area_reg = ar.async_get(hass)
+
     for entity_id in hass.states.async_entity_ids("media_player"):
+        if not entity_id.startswith("media_player.plex_"):
+            continue
         state = hass.states.get(entity_id)
         if not state:
             continue
-        name = state.attributes.get("friendly_name", "").lower()
-        if hint in name or hint in entity_id.lower():
+
+        # 1. Friendly name from state
+        friendly_name = state.attributes.get("friendly_name", "").lower()
+        if hint in friendly_name or hint in entity_id.lower():
             return entity_id
+
+        # 2. HA device name + area name via registries
+        entry = ent_reg.async_get(entity_id)
+        if entry and entry.device_id:
+            device = dev_reg.async_get(entry.device_id)
+            if device:
+                device_name = (device.name_by_user or device.name or "").lower()
+                if hint in device_name:
+                    return entity_id
+
+                area_id = entry.area_id or device.area_id
+                if area_id:
+                    area = area_reg.async_get_area(area_id)
+                    if area and hint in area.name.lower():
+                        return entity_id
+
     return None
 
 
