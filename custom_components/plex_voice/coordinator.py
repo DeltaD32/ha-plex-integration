@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
@@ -31,18 +31,9 @@ class PlexVoiceCoordinator:
         self._libraries: list[dict] = []
         self._clients: list[dict] = []
 
-    def _headers(self) -> dict:
-        return {
-            **PLEX_HEADERS,
-            "X-Plex-Token": self.plex_token,
-        }
-
     def _url(self, path: str, **params) -> str:
-        param_str = "&".join(f"{k}={v}" for k, v in params.items())
-        base = f"{self.plex_url}{path}?X-Plex-Token={self.plex_token}"
-        if param_str:
-            base += f"&{param_str}"
-        return base
+        query = urlencode({"X-Plex-Token": self.plex_token, **params})
+        return f"{self.plex_url}{path}?{query}"
 
     async def async_setup(self) -> None:
         """Connect and load initial data."""
@@ -130,13 +121,12 @@ class PlexVoiceCoordinator:
     async def play_on_client(self, client_machine_id: str, media_key: str, media_type: str) -> bool:
         """Tell a Plex client to play a specific item."""
         # Plex remote control: /player/playback/playMedia
-        url = (
-            f"{self.plex_url}/player/playback/playMedia"
-            f"?X-Plex-Token={self.plex_token}"
-            f"&machineIdentifier={client_machine_id}"
-            f"&key={media_key}"
-            f"&type={media_type}"
-            f"&X-Plex-Target-Client-Identifier={client_machine_id}"
+        url = self._url(
+            "/player/playback/playMedia",
+            machineIdentifier=client_machine_id,
+            key=media_key,
+            type=media_type,
+            **{"X-Plex-Target-Client-Identifier": client_machine_id},
         )
         try:
             async with self._session.get(url, headers=PLEX_HEADERS) as resp:
