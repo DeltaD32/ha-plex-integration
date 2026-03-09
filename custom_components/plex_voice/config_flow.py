@@ -126,9 +126,6 @@ class PlexVoiceConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
-            description_placeholders={
-                "token_url": "https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/"
-            },
         )
 
     async def async_step_devices(self, user_input: dict[str, Any] | None = None):
