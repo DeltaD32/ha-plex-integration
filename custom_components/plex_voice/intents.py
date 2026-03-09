@@ -25,6 +25,7 @@ from .const import (
     INTENT_PLAY_MEDIA,
     INTENT_CLARIFY_TYPE,
     INTENT_CLARIFY_TITLE,
+    INTENT_CLARIFY_DEVICE,
     PLEX_TYPE_MOVIE,
     PLEX_TYPE_SHOW,
     PLEX_TYPE_MUSIC,
@@ -42,6 +43,7 @@ async def async_setup_intents(hass: HomeAssistant, coordinator: PlexVoiceCoordin
     intent.async_register(hass, PlexPlayMediaIntent(hass, coordinator))
     intent.async_register(hass, PlexClarifyTypeIntent(hass, coordinator))
     intent.async_register(hass, PlexClarifyTitleIntent(hass, coordinator))
+    intent.async_register(hass, PlexClarifyDeviceIntent(hass, coordinator))
     _LOGGER.info("Plex Voice: registered voice intent handlers")
 
 
@@ -307,6 +309,46 @@ class PlexClarifyTitleIntent(intent.IntentHandler):
         return await _confirm_and_play(self.hass, self.coordinator, intent_obj, match, room, conv_key)
 
 
+class PlexClarifyDeviceIntent(intent.IntentHandler):
+    """Handle follow-up: user names a device after being asked 'which device?'."""
+
+    intent_type = INTENT_CLARIFY_DEVICE
+    slot_schema = {
+        vol.Required("device"): intent.non_empty_string,
+    }
+
+    def __init__(self, hass: HomeAssistant, coordinator: PlexVoiceCoordinator) -> None:
+        self.hass = hass
+        self.coordinator = coordinator
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        conv_key = _conversation_key(intent_obj)
+        device_hint: str = intent_obj.slots.get("device", {}).get("value", "")
+
+        session = _get_session(self.hass, conv_key)
+        pending_item = session.get("pending_item")
+
+        if not pending_item:
+            response = intent_obj.create_response()
+            response.async_set_speech(
+                "I'm not sure what you'd like to play. Try saying 'play something on Plex' first."
+            )
+            return response
+
+        player_entity_id = _find_player_entity(self.hass, device_hint)
+        if not player_entity_id:
+            response = intent_obj.create_response()
+            response.async_set_speech(
+                f"I couldn't find a Plex player called {device_hint}. "
+                f"Please check the device name and try again."
+            )
+            return response
+
+        return await _confirm_and_play(
+            self.hass, self.coordinator, intent_obj, pending_item, device_hint, conv_key
+        )
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -368,7 +410,8 @@ async def _confirm_and_play(
                 for e in plex_players
                 if hass.states.get(e)
             ]
-            _clear_session(hass, conv_key)
+            # Keep session alive so PlexClarifyDeviceIntent can use it.
+            session["pending_item"] = item
             response = intent_obj.create_response()
             response.async_set_speech(
                 f"I found {title}. Which device? You have: {_format_list(names)}."
