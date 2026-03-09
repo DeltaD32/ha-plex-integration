@@ -1,12 +1,14 @@
 """Constants for the Plex Voice integration."""
 
 DOMAIN = "plex_voice"
-PLATFORMS = ["media_player"]
+PLATFORMS = ["media_player", "sensor", "binary_sensor"]
 
 # Config entry keys
 CONF_PLEX_URL = "plex_url"
 CONF_PLEX_TOKEN = "plex_token"
 CONF_SERVER_NAME = "server_name"
+# List of {"id": machine_id, "name": display_name} dicts. Empty = monitor all.
+CONF_MONITORED_CLIENTS = "monitored_clients"
 
 # Data keys
 DATA_COORDINATOR = "coordinator"

@@ -15,7 +15,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_PLEX_URL, CONF_PLEX_TOKEN, CONF_SERVER_NAME, DOMAIN, POLL_INTERVAL
+from .const import (
+    CONF_MONITORED_CLIENTS,
+    CONF_PLEX_TOKEN,
+    CONF_PLEX_URL,
+    CONF_SERVER_NAME,
+    DOMAIN,
+    POLL_INTERVAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +46,7 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         self._session: aiohttp.ClientSession | None = None
         self._libraries: list[dict] = []
         self._known_machine_ids: set[str] = set()
+        self._client_names: dict[str, str] = {}
         self._new_client_callbacks: list[Callable[[dict], None]] = []
         self.last_poll_time: Any = None
 
@@ -72,7 +80,7 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         self._libraries = data.get("MediaContainer", {}).get("Directory", [])
 
     async def _prefetch_clients(self) -> None:
-        """Populate _known_machine_ids from /clients so startup entities are not re-created."""
+        """Populate _known_machine_ids and _client_names from /clients."""
         url = self._url("/clients")
         try:
             async with self._session.get(url, headers=PLEX_HEADERS) as resp:
@@ -83,8 +91,36 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 mid = client.get("machineIdentifier")
                 if mid:
                     self._known_machine_ids.add(mid)
+                    self._client_names[mid] = client.get("name", mid)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Monitored-client helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def monitored_clients(self) -> list[dict]:
+        """Return configured client list [{"id": mid, "name": name}]. Empty = all."""
+        return self.entry.data.get(CONF_MONITORED_CLIENTS, [])
+
+    @property
+    def monitored_machine_ids(self) -> set[str]:
+        return {c["id"] for c in self.monitored_clients}
+
+    def get_client_name(self, machine_id: str) -> str:
+        """Return a display name for a machine ID."""
+        # Prefer name stored at config time (survives reboots/offline devices)
+        for c in self.monitored_clients:
+            if c["id"] == machine_id:
+                return c["name"]
+        return self._client_names.get(machine_id, machine_id)
+
+    def startup_client_list(self) -> list[dict]:
+        """Return [{"machineIdentifier": mid, "name": name}] for entity creation at startup."""
+        if self.monitored_clients:
+            return [{"machineIdentifier": c["id"], "name": c["name"]} for c in self.monitored_clients]
+        return [{"machineIdentifier": mid, "name": self.get_client_name(mid)} for mid in self._known_machine_ids]
 
     async def _async_update_data(self) -> dict[str, dict]:
         """Poll /status/sessions. Returns {machine_id: session_info}."""
@@ -101,11 +137,15 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         sessions: dict[str, dict] = {}
         container = data.get("MediaContainer", {})
         new_clients: list[dict] = []
+        monitored = self.monitored_machine_ids  # empty set = all
 
         for item in container.get("Video", []) + container.get("Track", []):
             player = item.get("Player", {})
             machine_id = player.get("machineIdentifier")
             if not machine_id:
+                continue
+            # Skip clients not in the monitored list (when a list is configured)
+            if monitored and machine_id not in monitored:
                 continue
 
             sessions[machine_id] = {
@@ -123,10 +163,12 @@ class PlexVoiceCoordinator(DataUpdateCoordinator[dict[str, dict]]):
 
             if machine_id not in self._known_machine_ids:
                 self._known_machine_ids.add(machine_id)
+                client_name = player.get("title") or player.get("product", machine_id)
+                self._client_names[machine_id] = client_name
                 new_clients.append(
                     {
                         "machineIdentifier": machine_id,
-                        "name": player.get("title") or player.get("product", machine_id),
+                        "name": client_name,
                         "platform": player.get("platform", ""),
                     }
                 )

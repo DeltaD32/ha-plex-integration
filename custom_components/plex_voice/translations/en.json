@@ -9,6 +9,13 @@
           "plex_token": "Plex Authentication Token",
           "server_name": "Server Display Name"
         }
+      },
+      "devices": {
+        "title": "Choose Devices to Monitor",
+        "description": "Select which Plex clients should have media player, sensor, and binary sensor entities. Leave all unselected to monitor every client automatically.",
+        "data": {
+          "monitored_clients": "Plex Clients"
+        }
       }
     },
     "error": {
@@ -29,6 +36,13 @@
           "plex_url": "Plex Server URL",
           "plex_token": "Plex Authentication Token",
           "server_name": "Server Display Name"
+        }
+      },
+      "devices": {
+        "title": "Choose Devices to Monitor",
+        "description": "Select which Plex clients should be monitored. Leave all unselected to monitor every client automatically.",
+        "data": {
+          "monitored_clients": "Plex Clients"
         }
       }
     },

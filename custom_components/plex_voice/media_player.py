@@ -42,10 +42,10 @@ async def async_setup_entry(
     """Set up Plex Voice media player entities."""
     coordinator: PlexVoiceCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    # Build initial entities from the clients that were known at startup.
+    # Build initial entities using the monitored-client list (or all known clients).
     initial_entities: list[MediaPlayerEntity] = [
-        PlexVoiceMediaPlayer(coordinator, {"machineIdentifier": mid, "name": mid})
-        for mid in coordinator._known_machine_ids
+        PlexVoiceMediaPlayer(coordinator, c)
+        for c in coordinator.startup_client_list()
     ]
     # Always add the virtual server browser for the Media panel.
     initial_entities.append(PlexVoiceServerBrowser(coordinator))
