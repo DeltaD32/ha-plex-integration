@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 
@@ -67,8 +68,8 @@ class PlexPlayMediaIntent(intent.IntentHandler):
 
     intent_type = INTENT_PLAY_MEDIA
     slot_schema = {
-        "title": intent.non_empty_string,
-        "room": str,
+        vol.Required("title"): intent.non_empty_string,
+        vol.Optional("room"): str,
     }
 
     def __init__(self, hass: HomeAssistant, coordinator: PlexVoiceCoordinator) -> None:
@@ -258,8 +259,16 @@ async def _confirm_and_play(
     if not player_entity_id:
         plex_players = [
             eid for eid in hass.states.async_entity_ids("media_player")
-            if eid.startswith(f"media_player.plex_")
+            if eid.startswith("media_player.plex_")
         ]
+        if not plex_players:
+            _clear_session(hass)
+            response = intent_obj.create_response()
+            response.async_set_speech(
+                f"I found {title} but there are no active Plex players. "
+                f"Please open Plex on a device first."
+            )
+            return response
         if len(plex_players) == 1:
             player_entity_id = plex_players[0]
             state = hass.states.get(player_entity_id)
