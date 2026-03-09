@@ -37,7 +37,7 @@ If Plex has both a movie and a show named Star Wars:
 
 1. In Home Assistant, go to **HACS → Integrations**
 2. Click the **⋮ menu → Custom Repositories**
-3. Add `https://github.com/yourusername/ha-plex-voice` as category **Integration**
+3. Add `https://github.com/DeltaD32/ha-plex-voice` as category **Integration**
 4. Search for **Plex Voice** and click **Download**
 5. Restart Home Assistant
 
