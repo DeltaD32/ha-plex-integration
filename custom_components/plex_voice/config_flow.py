@@ -11,7 +11,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers import selector
+from homeassistant.helpers import entity_registry as er, selector
 
 from .const import DOMAIN, CONF_PLEX_URL, CONF_PLEX_TOKEN, CONF_SERVER_NAME, CONF_MONITORED_CLIENTS
 
@@ -42,25 +42,41 @@ async def validate_plex_connection(hass, url: str, token: str) -> dict:
     }
 
 
-async def fetch_plex_clients(hass, url: str, token: str) -> list[dict]:
-    """Fetch available Plex clients. Returns [{"id": mid, "name": name}, ...]."""
-    session = async_get_clientsession(hass)
-    full_url = f"{url.rstrip('/')}/clients?X-Plex-Token={token}"
-    headers = {"Accept": "application/json"}
-    try:
-        async with session.get(full_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
-        return [
-            {
-                "id": c.get("machineIdentifier", ""),
-                "name": c.get("name", c.get("machineIdentifier", "Unknown")),
-            }
-            for c in data.get("MediaContainer", {}).get("Server", [])
-            if c.get("machineIdentifier")
-        ]
-    except Exception:
-        return []
+def get_ha_media_player_clients(hass) -> list[dict]:
+    """Return media_player entities from HA as selectable Plex clients.
+
+    For entities from the official HA Plex integration their entity registry
+    unique_id *is* the Plex machineIdentifier, so the coordinator can use it
+    directly.  For other media_player entities the entity_id is stored as the
+    id and session matching / playback commands will not work — but the entry
+    will at least appear for voice targeting.
+
+    Entities are always available (unlike /clients which only shows active
+    players), so the picker is never empty.
+    """
+    ent_reg = er.async_get(hass)
+    clients: list[dict] = []
+    seen_ids: set[str] = set()
+
+    for entry in ent_reg.entities.values():
+        if entry.domain != "media_player":
+            continue
+        # Prefer the Plex machineIdentifier stored as unique_id by the
+        # official HA Plex integration.  Fall back to entity_id.
+        client_id = entry.unique_id if entry.platform == "plex" else entry.entity_id
+        if not client_id or client_id in seen_ids:
+            continue
+        seen_ids.add(client_id)
+
+        state = hass.states.get(entry.entity_id)
+        name = (
+            (state.attributes.get("friendly_name") if state else None)
+            or entry.original_name
+            or entry.entity_id
+        )
+        clients.append({"id": client_id, "name": name})
+
+    return sorted(clients, key=lambda c: c["name"].lower())
 
 
 def _devices_schema(available_clients: list[dict], current_ids: list[str]) -> vol.Schema:
@@ -117,9 +133,7 @@ class PlexVoiceConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._plex_url = user_input[CONF_PLEX_URL]
                 self._plex_token = user_input[CONF_PLEX_TOKEN]
                 self._server_name = user_input.get(CONF_SERVER_NAME) or info["friendly_name"]
-                self._available_clients = await fetch_plex_clients(
-                    self.hass, self._plex_url, self._plex_token
-                )
+                self._available_clients = get_ha_media_player_clients(self.hass)
                 return await self.async_step_devices()
 
         return self.async_show_form(
@@ -178,9 +192,7 @@ class PlexVoiceOptionsFlow(config_entries.OptionsFlow):
                 self._plex_url = user_input[CONF_PLEX_URL]
                 self._plex_token = user_input[CONF_PLEX_TOKEN]
                 self._server_name = user_input.get(CONF_SERVER_NAME, self.config_entry.data.get(CONF_SERVER_NAME, "Plex"))
-                self._available_clients = await fetch_plex_clients(
-                    self.hass, self._plex_url, self._plex_token
-                )
+                self._available_clients = get_ha_media_player_clients(self.hass)
                 return await self.async_step_devices()
 
         current = self.config_entry.data
