@@ -1,0 +1,39 @@
+# intents.yaml
+# Place this file in your HA config directory as: config/intents.yaml
+# (or merge with your existing intents.yaml)
+#
+# This defines the sentence patterns that trigger Plex Voice intent handlers.
+
+intents:
+  PlexPlayMedia:
+    - sentences:
+        - "play {title} [from plex] [on [the] {room}]"
+        - "play {title} [from plex] [in [the] {room}]"
+        - "put on {title} [from plex] [on [the] {room}]"
+        - "put on {title} [from plex] [in [the] {room}]"
+        - "start {title} [from plex] [on [the] {room}]"
+        - "start {title} [from plex] [in [the] {room}]"
+        - "watch {title} [from plex] [on [the] {room}]"
+        - "watch {title} [from plex] [in [the] {room}]"
+
+  PlexClarifyType:
+    - sentences:
+        - "[the] {media_type}"
+        - "i want [the] {media_type}"
+        - "[the] {media_type} version"
+        - "[the] {media_type} one"
+      slots:
+        media_type:
+          - movie
+          - film
+          - show
+          - series
+          - tv show
+          - television show
+
+  PlexClarifyTitle:
+    - sentences:
+        - "{title}"
+        - "the [one called] {title}"
+        - "i want {title}"
+        - "play {title}"

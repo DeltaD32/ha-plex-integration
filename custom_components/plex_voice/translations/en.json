@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Plex",
+        "description": "Enter your Plex server URL and authentication token.\n\nYour token can be found at: {token_url}",
+        "data": {
+          "plex_url": "Plex Server URL (e.g. http://192.168.1.x:32400)",
+          "plex_token": "Plex Authentication Token",
+          "server_name": "Server Display Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Plex. Check the URL and make sure Plex is running.",
+      "invalid_auth": "Invalid Plex token. Check your X-Plex-Token.",
+      "unknown": "Unexpected error. Check the HA logs."
+    },
+    "abort": {
+      "already_configured": "This Plex server is already configured."
+    }
+  }
+}
