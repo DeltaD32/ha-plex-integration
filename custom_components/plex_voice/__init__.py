@@ -21,20 +21,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Plex Voice from a config entry."""
     coordinator = PlexVoiceCoordinator(hass, entry)
 
+    # async_setup fetches libraries and pre-populates known clients.
+    # Failures here mean the server is unreachable — surface as ConfigEntryNotReady.
     try:
         await coordinator.async_setup()
     except Exception as err:
         raise ConfigEntryNotReady(f"Failed to connect to Plex: {err}") from err
 
+    # First session poll via DataUpdateCoordinator; also raises ConfigEntryNotReady on failure.
+    await coordinator.async_config_entry_first_refresh()
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register intent handlers for voice assistant
     from .intents import async_setup_intents
     await async_setup_intents(hass, coordinator)
 
+    # Reload the entry whenever options are saved so the coordinator picks up
+    # any URL/token/name changes immediately.
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the integration when the options flow saves new settings."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

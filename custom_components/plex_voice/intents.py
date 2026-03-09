@@ -1,11 +1,14 @@
 """Intent handlers for Plex Voice assistant integration.
 
-This is the core of the conversational voice flow:
+Conversational voice flow:
   "Play Star Wars on the living room TV"
   → search Plex
-  → if ambiguous: ask movie or show?
-  → if still ambiguous: list matches, ask which one
+  → if ambiguous (movie vs show): ask
+  → if multiple matches: list and ask which one
   → confirm and play
+
+Sessions are scoped per conversation so two simultaneous voice interactions
+(e.g. two Alexa devices) don't trample each other's state.
 """
 
 from __future__ import annotations
@@ -24,6 +27,9 @@ from .const import (
     INTENT_CLARIFY_TITLE,
     PLEX_TYPE_MOVIE,
     PLEX_TYPE_SHOW,
+    PLEX_TYPE_MUSIC,
+    PLEX_TYPE_ALBUM,
+    PLEX_TYPE_TRACK,
     SESSION_KEY,
 )
 from .coordinator import PlexVoiceCoordinator
@@ -39,19 +45,31 @@ async def async_setup_intents(hass: HomeAssistant, coordinator: PlexVoiceCoordin
     _LOGGER.info("Plex Voice: registered voice intent handlers")
 
 
-def _get_session(hass: HomeAssistant) -> dict:
-    """Get or create the conversation session store."""
-    if SESSION_KEY not in hass.data:
-        hass.data[SESSION_KEY] = {}
-    return hass.data[SESSION_KEY]
+# ---------------------------------------------------------------------------
+# Per-conversation session helpers
+# ---------------------------------------------------------------------------
 
 
-def _clear_session(hass: HomeAssistant) -> None:
-    hass.data[SESSION_KEY] = {}
+def _conversation_key(intent_obj: intent.Intent) -> str:
+    """Return a stable key that isolates each concurrent conversation."""
+    return (
+        getattr(intent_obj, "conversation_id", None)
+        or getattr(intent_obj.context, "user_id", None)
+        or "default"
+    )
+
+
+def _get_session(hass: HomeAssistant, key: str) -> dict:
+    sessions: dict = hass.data.setdefault(SESSION_KEY, {})
+    return sessions.setdefault(key, {})
+
+
+def _clear_session(hass: HomeAssistant, key: str) -> None:
+    hass.data.get(SESSION_KEY, {}).pop(key, None)
 
 
 def _find_player_entity(hass: HomeAssistant, location_hint: str) -> str | None:
-    """Try to match a spoken location to a media_player entity."""
+    """Match a spoken location to a media_player entity by friendly name or entity_id."""
     hint = location_hint.lower().strip()
     for entity_id in hass.states.async_entity_ids("media_player"):
         state = hass.states.get(entity_id)
@@ -61,6 +79,11 @@ def _find_player_entity(hass: HomeAssistant, location_hint: str) -> str | None:
         if hint in name or hint in entity_id.lower():
             return entity_id
     return None
+
+
+# ---------------------------------------------------------------------------
+# Intent handlers
+# ---------------------------------------------------------------------------
 
 
 class PlexPlayMediaIntent(intent.IntentHandler):
@@ -78,70 +101,91 @@ class PlexPlayMediaIntent(intent.IntentHandler):
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
         slots = intent_obj.slots
-        title = slots.get("title", {}).get("value", "")
-        room = slots.get("room", {}).get("value", "")
+        title: str = slots.get("title", {}).get("value", "")
+        room: str = slots.get("room", {}).get("value", "")
+        conv_key = _conversation_key(intent_obj)
 
         if not title:
             response = intent_obj.create_response()
             response.async_set_speech("What would you like to play from Plex?")
             return response
 
-        # Search Plex
         results = await self.coordinator.search(title)
 
         if not results:
             response = intent_obj.create_response()
-            response.async_set_speech(f"I couldn't find anything called {title} on your Plex server.")
+            response.async_set_speech(
+                f"I couldn't find anything called {title} on your Plex server."
+            )
             return response
 
         movies = [r for r in results if r.get("type") == PLEX_TYPE_MOVIE]
         shows = [r for r in results if r.get("type") == PLEX_TYPE_SHOW]
+        music = [
+            r for r in results if r.get("type") in (PLEX_TYPE_MUSIC, PLEX_TYPE_ALBUM, PLEX_TYPE_TRACK)
+        ]
 
-        session = _get_session(self.hass)
-        session["title_query"] = title
-        session["room"] = room
-        session["movies"] = movies
-        session["shows"] = shows
+        session = _get_session(self.hass, conv_key)
+        session.update({"title_query": title, "room": room, "movies": movies, "shows": shows, "music": music})
 
-        # Case 1: only movies found
-        if movies and not shows:
+        # Only movies
+        if movies and not shows and not music:
             if len(movies) == 1:
-                return await _confirm_and_play(self.hass, self.coordinator, intent_obj, movies[0], room)
+                return await _confirm_and_play(self.hass, self.coordinator, intent_obj, movies[0], room, conv_key)
             session["media_type"] = PLEX_TYPE_MOVIE
-            titles = _format_list([m.get("title", "?") for m in movies])
             response = intent_obj.create_response()
             response.async_set_speech(
-                f"I found {len(movies)} movies matching {title}: {titles}. Which one would you like?"
+                f"I found {len(movies)} movies matching {title}: "
+                f"{_format_list([m.get('title', '?') for m in movies])}. Which one?"
             )
             return response
 
-        # Case 2: only shows found
-        if shows and not movies:
+        # Only shows
+        if shows and not movies and not music:
             if len(shows) == 1:
-                return await _confirm_and_play(self.hass, self.coordinator, intent_obj, shows[0], room)
+                return await _confirm_and_play(self.hass, self.coordinator, intent_obj, shows[0], room, conv_key)
             session["media_type"] = PLEX_TYPE_SHOW
-            titles = _format_list([s.get("title", "?") for s in shows])
             response = intent_obj.create_response()
             response.async_set_speech(
-                f"I found {len(shows)} shows matching {title}: {titles}. Which one would you like?"
+                f"I found {len(shows)} shows matching {title}: "
+                f"{_format_list([s.get('title', '?') for s in shows])}. Which one?"
             )
             return response
 
-        # Case 3: both movies AND shows — ask for clarification
+        # Only music
+        if music and not movies and not shows:
+            if len(music) == 1:
+                return await _confirm_and_play(self.hass, self.coordinator, intent_obj, music[0], room, conv_key)
+            session["media_type"] = PLEX_TYPE_MUSIC
+            response = intent_obj.create_response()
+            response.async_set_speech(
+                f"I found {len(music)} music results for {title}: "
+                f"{_format_list([m.get('title', '?') for m in music])}. Which one?"
+            )
+            return response
+
+        # Mixed results — ask what type
+        types_found = []
+        if movies:
+            types_found.append("a movie")
+        if shows:
+            types_found.append("a show")
+        if music:
+            types_found.append("music")
         response = intent_obj.create_response()
         response.async_set_speech(
-            f"I found {title} as both a movie and a show on Plex. "
-            f"Would you like the movie or the show?"
+            f"I found {title} as {_format_list(types_found)} on Plex. "
+            f"Would you like the {' or the '.join(t.replace('a ', '') for t in types_found)}?"
         )
         return response
 
 
 class PlexClarifyTypeIntent(intent.IntentHandler):
-    """Handle follow-up: 'movie' or 'show' after ambiguous search."""
+    """Handle follow-up: 'movie', 'show', or 'music' after ambiguous search."""
 
     intent_type = INTENT_CLARIFY_TYPE
     slot_schema = {
-        "media_type": intent.non_empty_string,
+        vol.Required("media_type"): intent.non_empty_string,
     }
 
     def __init__(self, hass: HomeAssistant, coordinator: PlexVoiceCoordinator) -> None:
@@ -149,35 +193,42 @@ class PlexClarifyTypeIntent(intent.IntentHandler):
         self.coordinator = coordinator
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        slots = intent_obj.slots
-        media_type_str = slots.get("media_type", {}).get("value", "").lower()
+        conv_key = _conversation_key(intent_obj)
+        media_type_str: str = intent_obj.slots.get("media_type", {}).get("value", "").lower()
 
-        session = _get_session(self.hass)
+        session = _get_session(self.hass, conv_key)
         if not session.get("title_query"):
             response = intent_obj.create_response()
-            response.async_set_speech("I'm not sure what you're referring to. Try saying 'play something on Plex' first.")
+            response.async_set_speech(
+                "I'm not sure what you're referring to. Try saying 'play something on Plex' first."
+            )
             return response
 
-        media_type = PLEX_TYPE_MOVIE if "movie" in media_type_str else PLEX_TYPE_SHOW
+        if "movie" in media_type_str or "film" in media_type_str:
+            media_type = PLEX_TYPE_MOVIE
+            results = session.get("movies", [])
+        elif "music" in media_type_str or "song" in media_type_str or "track" in media_type_str:
+            media_type = PLEX_TYPE_MUSIC
+            results = session.get("music", [])
+        else:
+            media_type = PLEX_TYPE_SHOW
+            results = session.get("shows", [])
+
         session["media_type"] = media_type
-        results = session.get("movies" if media_type == PLEX_TYPE_MOVIE else "shows", [])
         room = session.get("room", "")
 
         if not results:
+            _clear_session(self.hass, conv_key)
             response = intent_obj.create_response()
             response.async_set_speech(f"I couldn't find any {media_type_str} matching that title.")
-            _clear_session(self.hass)
             return response
 
         if len(results) == 1:
-            return await _confirm_and_play(self.hass, self.coordinator, intent_obj, results[0], room)
+            return await _confirm_and_play(self.hass, self.coordinator, intent_obj, results[0], room, conv_key)
 
-        # Multiple options — list them
         titles = _format_list([r.get("title", "?") for r in results])
         response = intent_obj.create_response()
-        response.async_set_speech(
-            f"I found these {media_type_str}s: {titles}. Which one would you like?"
-        )
+        response.async_set_speech(f"I found these: {titles}. Which one would you like?")
         return response
 
 
@@ -186,7 +237,7 @@ class PlexClarifyTitleIntent(intent.IntentHandler):
 
     intent_type = INTENT_CLARIFY_TITLE
     slot_schema = {
-        "title": intent.non_empty_string,
+        vol.Required("title"): intent.non_empty_string,
     }
 
     def __init__(self, hass: HomeAssistant, coordinator: PlexVoiceCoordinator) -> None:
@@ -194,34 +245,41 @@ class PlexClarifyTitleIntent(intent.IntentHandler):
         self.coordinator = coordinator
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        slots = intent_obj.slots
-        chosen_title = slots.get("title", {}).get("value", "").lower()
+        conv_key = _conversation_key(intent_obj)
+        chosen_title: str = intent_obj.slots.get("title", {}).get("value", "").lower()
 
-        session = _get_session(self.hass)
+        session = _get_session(self.hass, conv_key)
         media_type = session.get("media_type", PLEX_TYPE_MOVIE)
         room = session.get("room", "")
-        candidates = session.get("movies" if media_type == PLEX_TYPE_MOVIE else "shows", [])
 
-        # Fuzzy match by title
-        match = None
-        for item in candidates:
-            if chosen_title in item.get("title", "").lower():
-                match = item
-                break
+        if media_type == PLEX_TYPE_MOVIE:
+            candidates = session.get("movies", [])
+        elif media_type == PLEX_TYPE_SHOW:
+            candidates = session.get("shows", [])
+        else:
+            candidates = session.get("music", [])
+
+        match = next(
+            (item for item in candidates if chosen_title in item.get("title", "").lower()),
+            None,
+        )
 
         if not match:
-            # Re-search with the clarified title
             results = await self.coordinator.search(chosen_title, media_type=media_type)
-            if results:
-                match = results[0]
+            match = results[0] if results else None
 
         if not match:
+            _clear_session(self.hass, conv_key)
             response = intent_obj.create_response()
             response.async_set_speech(f"I couldn't find {chosen_title} on Plex. Please try again.")
-            _clear_session(self.hass)
             return response
 
-        return await _confirm_and_play(self.hass, self.coordinator, intent_obj, match, room)
+        return await _confirm_and_play(self.hass, self.coordinator, intent_obj, match, room, conv_key)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 
 async def _confirm_and_play(
@@ -230,14 +288,14 @@ async def _confirm_and_play(
     intent_obj: intent.Intent,
     item: dict,
     room: str,
+    conv_key: str,
 ) -> intent.IntentResponse:
-    """Find the right player, send play command, speak confirmation."""
+    """Resolve the target player, send the play command, and speak confirmation."""
     title = item.get("title", "that")
     media_key = item.get("ratingKey", "")
     media_type = item.get("type", PLEX_TYPE_MOVIE)
 
-    # Resolve player entity
-    player_entity_id = None
+    player_entity_id: str | None = None
     player_name = "your device"
 
     if room:
@@ -246,23 +304,22 @@ async def _confirm_and_play(
             state = hass.states.get(player_entity_id)
             player_name = state.attributes.get("friendly_name", room) if state else room
         else:
-            # Room given but no player found
-            _clear_session(hass)
+            _clear_session(hass, conv_key)
             response = intent_obj.create_response()
             response.async_set_speech(
-                f"I found {title} but I couldn't find a Plex player in the {room}. "
+                f"I found {title} but couldn't find a Plex player in the {room}. "
                 f"Check that the device is on and Plex is open."
             )
             return response
 
-    # If no room given, see if there's only one active player
     if not player_entity_id:
         plex_players = [
-            eid for eid in hass.states.async_entity_ids("media_player")
+            eid
+            for eid in hass.states.async_entity_ids("media_player")
             if eid.startswith("media_player.plex_")
         ]
         if not plex_players:
-            _clear_session(hass)
+            _clear_session(hass, conv_key)
             response = intent_obj.create_response()
             response.async_set_speech(
                 f"I found {title} but there are no active Plex players. "
@@ -272,41 +329,37 @@ async def _confirm_and_play(
         if len(plex_players) == 1:
             player_entity_id = plex_players[0]
             state = hass.states.get(player_entity_id)
-            player_name = state.attributes.get("friendly_name", player_entity_id) if state else player_entity_id
+            player_name = (
+                state.attributes.get("friendly_name", player_entity_id) if state else player_entity_id
+            )
         else:
-            # Ask which player
             names = [
                 hass.states.get(e).attributes.get("friendly_name", e)
-                for e in plex_players if hass.states.get(e)
+                for e in plex_players
+                if hass.states.get(e)
             ]
-            _clear_session(hass)
+            _clear_session(hass, conv_key)
             response = intent_obj.create_response()
             response.async_set_speech(
-                f"I found {title}. Which device would you like to play it on? "
-                f"You have: {_format_list(names)}."
+                f"I found {title}. Which device? You have: {_format_list(names)}."
             )
             return response
 
-    # Send play command via service call
     await hass.services.async_call(
         "media_player",
         "play_media",
-        {
-            "entity_id": player_entity_id,
-            "media_content_id": media_key,
-            "media_content_type": media_type,
-        },
+        {"entity_id": player_entity_id, "media_content_id": media_key, "media_content_type": media_type},
         blocking=False,
     )
 
-    _clear_session(hass)
+    _clear_session(hass, conv_key)
     response = intent_obj.create_response()
     response.async_set_speech(f"Okay! Playing {title} on {player_name}.")
     return response
 
 
 def _format_list(items: list[str]) -> str:
-    """Format a list for speech: 'a, b, and c'."""
+    """Format a list for natural speech: 'a, b, and c'."""
     if not items:
         return "nothing"
     if len(items) == 1:
