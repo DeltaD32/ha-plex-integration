@@ -19,5 +19,23 @@
     "abort": {
       "already_configured": "This Plex server is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Reconfigure Plex Voice",
+        "description": "Update your Plex server connection settings.",
+        "data": {
+          "plex_url": "Plex Server URL",
+          "plex_token": "Plex Authentication Token",
+          "server_name": "Server Display Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Plex. Check the URL and make sure Plex is running.",
+      "invalid_auth": "Invalid Plex token. Check your X-Plex-Token.",
+      "unknown": "Unexpected error. Check the HA logs."
+    }
   }
 }
