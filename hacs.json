@@ -1,8 +1,5 @@
 {
   "name": "Plex Voice",
   "homeassistant": "2024.4.1",
-  "hacs": "2.0.0",
-  "zip_release": true,
-  "filename": "plex_voice.zip",
-  "hide_default_branch": false
+  "hacs": "2.0.0"
 }
