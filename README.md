@@ -1,7 +1,7 @@
 # Plex Voice — Home Assistant Custom Integration
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/yourusername/ha-plex-voice.svg)](https://github.com/yourusername/ha-plex-voice/releases)
+[![GitHub Release](https://img.shields.io/github/release/yourusername/ha-plex-voice.svg)](https://github.com/DeltaD32/ha-plex-voice/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=yourusername&repository=ha-plex-voice&category=integration)
