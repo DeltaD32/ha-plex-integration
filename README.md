@@ -1,10 +1,10 @@
 # Plex Voice — Home Assistant Custom Integration
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/DeltaD32/ha-plex-voice.svg)](https://github.com/DeltaD32/ha-plex-voice/releases)
+[![GitHub Release](https://img.shields.io/github/release/DeltaD32/ha-plex-integration.svg)](https://github.com/DeltaD32/ha-plex-integration/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DeltaD32&repository=ha-plex-voice&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DeltaD32&repository=ha-plex-integration&category=integration)
 
 A fully packaged Home Assistant custom integration that connects your Plex Media Server with:
 
@@ -37,7 +37,7 @@ If Plex has both a movie and a show named Star Wars:
 
 1. In Home Assistant, go to **HACS → Integrations**
 2. Click the **⋮ menu → Custom Repositories**
-3. Add `https://github.com/DeltaD32/ha-plex-voice` as category **Integration**
+3. Add `https://github.com/DeltaD32/ha-plex-integration` as category **Integration**
 4. Search for **Plex Voice** and click **Download**
 5. Restart Home Assistant
 
