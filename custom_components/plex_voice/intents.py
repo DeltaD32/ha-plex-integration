@@ -20,6 +20,8 @@ import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent, entity_registry as er, device_registry as dr, area_registry as ar
 
+from .helpers import get_machine_id_for_entity, get_plex_player_entities
+
 from .const import (
     DOMAIN,
     INTENT_PLAY_MEDIA,
@@ -83,9 +85,7 @@ def _find_player_entity(hass: HomeAssistant, location_hint: str) -> str | None:
     dev_reg = dr.async_get(hass)
     area_reg = ar.async_get(hass)
 
-    for entity_id in hass.states.async_entity_ids("media_player"):
-        if not entity_id.startswith("media_player.plex_"):
-            continue
+    for entity_id, _ in get_plex_player_entities(hass):
         state = hass.states.get(entity_id)
         if not state:
             continue
@@ -385,31 +385,19 @@ async def _confirm_and_play(
             return response
 
     if not player_entity_id:
-        plex_players = [
-            eid
-            for eid in hass.states.async_entity_ids("media_player")
-            if eid.startswith("media_player.plex_")
-        ]
+        plex_players = get_plex_player_entities(hass)
         if not plex_players:
             _clear_session(hass, conv_key)
             response = intent_obj.create_response()
             response.async_set_speech(
-                f"I found {title} but there are no active Plex players. "
-                f"Please open Plex on a device first."
+                f"I found {title} but there are no Plex players configured. "
+                f"Please check the integration setup."
             )
             return response
         if len(plex_players) == 1:
-            player_entity_id = plex_players[0]
-            state = hass.states.get(player_entity_id)
-            player_name = (
-                state.attributes.get("friendly_name", player_entity_id) if state else player_entity_id
-            )
+            player_entity_id, player_name = plex_players[0]
         else:
-            names = [
-                hass.states.get(e).attributes.get("friendly_name", e)
-                for e in plex_players
-                if hass.states.get(e)
-            ]
+            names = [name for _, name in plex_players]
             # Keep session alive so PlexClarifyDeviceIntent can use it.
             session["pending_item"] = item
             response = intent_obj.create_response()
@@ -418,12 +406,16 @@ async def _confirm_and_play(
             )
             return response
 
-    await hass.services.async_call(
-        "media_player",
-        "play_media",
-        {"entity_id": player_entity_id, "media_content_id": media_key, "media_content_type": media_type},
-        blocking=False,
-    )
+    machine_id = get_machine_id_for_entity(hass, player_entity_id)
+    if machine_id:
+        await coordinator.play_on_client(machine_id, media_key, media_type)
+    else:
+        await hass.services.async_call(
+            "media_player",
+            "play_media",
+            {"entity_id": player_entity_id, "media_content_id": media_key, "media_content_type": media_type},
+            blocking=False,
+        )
 
     _clear_session(hass, conv_key)
     response = intent_obj.create_response()

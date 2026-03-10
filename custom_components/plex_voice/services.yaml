@@ -1,0 +1,35 @@
+play:
+  name: Play on Plex
+  description: >
+    Search your Plex library for a title and play it on a media player.
+    Works with any conversation agent (including LLMs like Loco/Ollama).
+    Uses the real Plex API so playback actually starts on the device.
+  fields:
+    title:
+      name: Title
+      description: Movie, show, album, or track to search for.
+      required: true
+      example: "Star Wars"
+      selector:
+        text:
+    entity_id:
+      name: Target player
+      description: >
+        The media player entity to play on. Leave empty to play on the only
+        available Plex player, or to be prompted if there are multiple.
+      required: false
+      example: "media_player.plex_apple_tv"
+      selector:
+        entity:
+          domain: media_player
+    media_type:
+      name: Media type
+      description: Narrow the search to a specific type (optional).
+      required: false
+      example: "movie"
+      selector:
+        select:
+          options:
+            - movie
+            - show
+            - music
